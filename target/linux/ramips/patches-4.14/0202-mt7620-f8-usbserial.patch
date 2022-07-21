@@ -1,0 +1,25 @@
+Index: linux-4.14.180/drivers/usb/serial/option.c
+===================================================================
+--- linux-4.14.180.orig/drivers/usb/serial/option.c	2020-06-11 20:56:33.965569123 +0800
++++ linux-4.14.180/drivers/usb/serial/option.c	2020-06-11 21:00:44.445557955 +0800
+@@ -559,6 +559,9 @@
+ #define WETELECOM_PRODUCT_6802			0x6802
+ #define WETELECOM_PRODUCT_WMD300		0x6803
+ 
++/* MEGO products */
++#define Mego_SLM750_VID 			0x05c6
++#define Mego_SLM750_PID 			0xf601
+ 
+ /* Device flags */
+ 
+@@ -1092,6 +1095,10 @@
+ 	/* Yuga products use Qualcomm vendor ID */
+ 	{ USB_DEVICE(QUALCOMM_VENDOR_ID, YUGA_PRODUCT_CLM920_NC5),
+ 	  .driver_info = RSVD(1) | RSVD(4) },
++
++	{ USB_DEVICE(Mego_SLM750_VID, Mego_SLM750_PID),
++          .driver_info = RSVD(4) },
++
+ 	/* u-blox products using Qualcomm vendor ID */
+ 	{ USB_DEVICE(QUALCOMM_VENDOR_ID, UBLOX_PRODUCT_R410M),
+ 	  .driver_info = RSVD(1) | RSVD(3) },

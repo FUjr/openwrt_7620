@@ -1,0 +1,162 @@
+Index: linux-4.14.180/drivers/mtd/mtdsplit/mtdsplit_uimage.c
+===================================================================
+--- linux-4.14.180.orig/drivers/mtd/mtdsplit/mtdsplit_uimage.c	2020-05-30 14:18:39.200610323 +0800
++++ linux-4.14.180/drivers/mtd/mtdsplit/mtdsplit_uimage.c	2020-06-11 20:36:17.385623363 +0800
+@@ -345,6 +345,149 @@
+ 	.type = MTD_PARSER_TYPE_FIRMWARE,
+ };
+ 
++#define ZLMNETIMAGENAME "ZLMnet?MIFIF17N"
++#define ZLMNETIMAGENAMELEN 15
++#define ZLMNETSTEPPAD 11
++
++static int
++__mtdsplit_parse_zlmnet_uimage(struct mtd_info * master,
++				const struct mtd_partition **pparts,
++					struct mtd_part_parser_data *data)
++{
++        struct mtd_partition *parts;
++        u_char *buf;
++        int nr_parts;
++        size_t offset;
++        size_t uimage_offset;
++        size_t uimage_size = 0;
++        size_t rootfs_offset;
++        size_t rootfs_size = 0;
++        int uimage_part, rf_part;
++        int ret;
++        enum mtdsplit_part_type type;
++
++        nr_parts = 2;
++        parts = kzalloc(nr_parts * sizeof(*parts), GFP_KERNEL);
++        if (!parts)
++                return -ENOMEM;
++
++        buf = vmalloc(MAX_HEADER_LEN);
++        if (!buf) {
++                ret = -ENOMEM;
++                goto err_free_parts;
++        }
++
++        /* find uImage on erase block boundaries */
++        for (offset = 0; offset < master->size; offset += master->erasesize) {
++                struct uimage_header *header;
++
++                uimage_size = 0;
++
++                ret = read_uimage_header(master, offset, buf, sizeof(struct uimage_header));
++                if (ret)
++                        continue;
++
++		if (uimage_verify_default(buf , sizeof(struct uimage_header)) < 0)
++                	continue;
++
++
++                header = (struct uimage_header *)(buf);
++		if(memcmp(header->ih_name, ZLMNETIMAGENAME, ZLMNETIMAGENAMELEN))
++			goto err_free_buf;
++
++                uimage_size = sizeof(*header) + be32_to_cpu(header->ih_size) - ZLMNETSTEPPAD;
++                if ((offset + uimage_size) > master->size) {
++                        pr_debug("uImage exceeds MTD device \"%s\"\n",
++                                 master->name);
++                        continue;
++                }
++                break;
++        }
++
++        if (uimage_size == 0) {
++                pr_debug("no uImage found in \"%s\"\n", master->name);
++                ret = -ENODEV;
++                goto err_free_buf;
++        }
++
++        uimage_offset = offset;
++
++        if (uimage_offset == 0) {
++                uimage_part = 0;
++                rf_part = 1;
++
++                /* find the roots after the uImage */
++                ret = mtd_find_rootfs_from(master, uimage_offset + uimage_size,
++                                           master->size, &rootfs_offset, &type);
++                if (ret) {
++                        pr_debug("no rootfs after uImage in \"%s\"\n",
++                                 master->name);
++                        goto err_free_buf;
++                }
++
++                rootfs_size = master->size - rootfs_offset;
++                uimage_size = rootfs_offset - uimage_offset;
++        } else {
++                rf_part = 0;
++                uimage_part = 1;
++
++                /* check rootfs presence at offset 0 */
++                ret = mtd_check_rootfs_magic(master, 0, &type);
++                if (ret) {
++                        pr_debug("no rootfs before uImage in \"%s\"\n",
++                                 master->name);
++                        goto err_free_buf;
++                }
++
++                rootfs_offset = 0;
++                rootfs_size = uimage_offset;
++        }
++
++        if (rootfs_size == 0) {
++                pr_debug("no rootfs found in \"%s\"\n", master->name);
++                ret = -ENODEV;
++                goto err_free_buf;
++        }
++
++        parts[uimage_part].name = KERNEL_PART_NAME;
++        parts[uimage_part].offset = uimage_offset;
++        parts[uimage_part].size = uimage_size;
++
++        if (type == MTDSPLIT_PART_TYPE_UBI)
++                parts[rf_part].name = UBI_PART_NAME;
++        else
++                parts[rf_part].name = ROOTFS_PART_NAME;
++        parts[rf_part].offset = rootfs_offset;
++        parts[rf_part].size = rootfs_size;
++
++        vfree(buf);
++
++        *pparts = parts;
++        return nr_parts;
++
++err_free_buf:
++        vfree(buf);
++err_free_parts:
++        kfree(parts);
++        return ret;
++}
++
++static int
++mtdsplit_uimage_parse_zlmnet(struct mtd_info *master,
++				const struct mtd_partition **pparts,
++					struct mtd_part_parser_data *data)
++{
++	return __mtdsplit_parse_zlmnet_uimage(master, pparts, data);
++}
++
++static struct mtd_part_parser uimage_zlmnet_parser = {
++        .owner = THIS_MODULE,
++        .name = "zlmnet-fw",
++        .parse_fn = mtdsplit_uimage_parse_zlmnet,
++        .type = MTD_PARSER_TYPE_FIRMWARE,
++};
++
++
+ /**************************************************
+  * Init
+  **************************************************/
+@@ -354,6 +497,7 @@
+ 	register_mtd_parser(&uimage_generic_parser);
+ 	register_mtd_parser(&uimage_netgear_parser);
+ 	register_mtd_parser(&uimage_edimax_parser);
++	register_mtd_parser(&uimage_zlmnet_parser);
+ 
+ 	return 0;
+ }
